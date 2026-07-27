@@ -1,0 +1,104 @@
+# 全容器化开发环境：MySQL + Spring Boot 后端（本机无需安装 JDK/Maven/MySQL）
+# 端口经本机排查避开已占用端口（8080/5173/15173 等已被其他项目使用）：
+#   MySQL  → 宿主机 13306
+#   后端   → 宿主机 8090
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: minsu-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: minsu
+      MYSQL_USER: minsu
+      MYSQL_PASSWORD: minsu123
+      TZ: Asia/Shanghai
+    ports:
+      - "13306:3306"
+    volumes:
+      - minsu-mysql-data:/var/lib/mysql
+      - ./backend/sql:/docker-entrypoint-initdb.d:ro
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uminsu", "-pminsu123"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    container_name: minsu-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/minsu?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: minsu
+      SPRING_DATASOURCE_PASSWORD: minsu123
+      MINSU_UPLOAD_DIR: /app/uploads
+      TZ: Asia/Shanghai
+      # Stripe 聚合支付（留空=Mock 模拟支付模式；拿到密钥后填入并重启 backend）
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # 站点结算货币（中性命名；历史变量 STRIPE_CURRENCY 兜底兼容旧 .env）
+      PAYMENT_CURRENCY: ${PAYMENT_CURRENCY:-${STRIPE_CURRENCY:-cny}}
+      STRIPE_PAYMENT_METHODS: ${STRIPE_PAYMENT_METHODS:-card,wechat_pay,alipay}
+      # LinkTrust Pay 跳转支付（wechatpay/alipay/unionpay）：留空=渠道禁用；
+      # 商户后台需配置決済結果通知URL: https://seabnb.axionintell.com/api/payments/linktrust/callback
+      LINKTRUST_MER_ID: ${LINKTRUST_MER_ID:-}
+      # 待支付超时自动取消释放房态（分钟，0=禁用）
+      BOOKING_PAY_TIMEOUT_MINUTES: ${BOOKING_PAY_TIMEOUT_MINUTES:-30}
+      # LLM 网关（Ollama Cloud）：留空=禁用；填入后 AI 房型文案生成等功能启用
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+    ports:
+      - "8090:8080"
+    volumes:
+      - minsu-uploads:/app/uploads
+    # 探 DB 触达的真实接口而非仅端口，假死(线程池耗尽/DB断连)也能判 unhealthy，
+    # 由本机 docker-autoheal(每3分钟)自动重启
+    healthcheck:
+      # 全局异常处理器把错误也包成 HTTP 200(body code:500)，必须校验响应体 code:0；
+      # /api/rooms 真实触达 DB，DB 断连/假死时 code!=0 → unhealthy → autoheal 重启
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:8080/api/rooms?current=1&size=1' | grep -q '\"code\":0'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # 生产入口：/ 用户端、/admin 管理端、/api 反代后端
+  web:
+    build: ./frontend
+    container_name: minsu-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "28080:80"   # 本机调试入口；公网走 cloudflared，不依赖此端口
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # 本项目专属独立 Cloudflare 隧道 (minsu-seabnb)，与其他项目隧道完全隔离
+  # 镜像无 shell 无法配容器 healthcheck；僵死检测由宿主机
+  # minsu-tunnel-watchdog.timer(每3分钟端到端公网探测)负责,连续3次失败自动 docker restart
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: minsu-cloudflared
+    restart: unless-stopped
+    # 以宿主用户运行以读取 0400 权限的凭证文件（不放宽文件权限）
+    user: "1000:1000"
+    depends_on:
+      - web
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflare/config.yml:/etc/cloudflared/config.yml:ro
+      - /home/steven-amd/.cloudflared/14085a84-e44c-4901-a3d3-e3102eb22772.json:/etc/cloudflared/credentials.json:ro
+
+volumes:
+  minsu-mysql-data:
+  minsu-uploads:

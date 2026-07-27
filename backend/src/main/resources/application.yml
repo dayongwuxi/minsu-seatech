@@ -1,0 +1,59 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: minsu-backend
+  profiles:
+    active: dev
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 25MB
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+minsu:
+  jwt:
+    secret: change-me-to-a-random-256bit-secret-change-me-please-0001
+    expire-hours: 24
+  upload:
+    dir: ./uploads
+    url-prefix: /files
+  # 孤儿图片清理：启动5分钟后+每24h，删「全库无引用且超宽限期」的上传图片
+  cleanup:
+    enabled: true
+    grace-hours: 48
+  # 待支付超时释放：下单即锁房，超时未支付自动取消释放房态（0=禁用）；
+  # 取消前对渠道(Stripe/LinkTrust)待支付流水做一次终确认防误伤
+  booking:
+    pay-timeout-minutes: ${BOOKING_PAY_TIMEOUT_MINUTES:30}
+  # LLM 网关（Ollama Cloud）。api-key 经 OLLAMA_API_KEY 注入，留空=禁用。
+  # models 为「逻辑角色→云模型名」路由表，按你 Ollama Cloud 账户可用模型调整。
+  llm:
+    base-url: https://ollama.com
+    api-key: ${OLLAMA_API_KEY:}
+    connect-timeout-ms: 5000
+    request-timeout-ms: 60000
+    max-concurrency: 8
+    acquire-timeout-ms: 3000
+    default-role: default
+    fallback-model: glm-5.2
+    models:
+      default: gemma4:31b
+      fast: gpt-oss:20b
+      reasoning: deepseek-v4-pro
+      copywriter: gpt-oss:120b
+      translator: gemma4:31b

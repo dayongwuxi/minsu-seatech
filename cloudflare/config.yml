@@ -1,0 +1,12 @@
+# cloudflared tunnel: minsu-seabnb —— 本项目专属独立隧道，与本机其他项目隧道完全隔离
+# 对外: https://seabnb.axionintell.com -> compose 内 web 容器 (nginx:80)
+# 运行方式: docker compose 内 cloudflared 容器（不占用宿主机端口，不依赖 systemd）
+# 凭证文件保存在 ~/.cloudflared/14085a84-e44c-4901-a3d3-e3102eb22772.json，由 compose 只读挂载
+tunnel: 14085a84-e44c-4901-a3d3-e3102eb22772
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: seabnb.axionintell.com
+    service: http://web:80
+  # 兜底：未匹配的主机名一律 404
+  - service: http_status:404

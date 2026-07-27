@@ -65,3 +65,24 @@ cd frontend/admin && npm install && npm run dev   # http://localhost:25174
 - 接口统一返回 `{ code, message, data }`，`code=0` 成功；分页返回 `{ total, pages, current, size, records }`
 - 认证：JWT Bearer Token，用户端与管理端分离（`/api/**` 会员 token、`/api/admin/**` 管理员 token）
 - 状态枚举与单号规则见 `docs/审阅纪要.md` 第 4 节，各端必须一致
+
+
+1. 启动 Docker Desktop
+Start-Process "$env:LOCALAPPDATA\Programs\DockerDesktop\Docker Desktop.exe"
+
+2. 进入项目目录
+cd C:\src\minsu-seatech-main
+
+3. 启动数据库、Java 后端和管理页面
+docker compose up -d --build mysql backend web
+这里故意不启动 cloudflared，避免把本地测试系统暴露到公网。
+
+4. 查看启动状态
+docker compose ps mysql backend web
+
+5. 打开管理后台
+浏览器访问：
+http://localhost:28080/admin/
+当前开发版默认账号：
+账号：admin
+密码：admin123
